@@ -1,0 +1,20 @@
+# Numerical computing
+numpy
+# Pytorch
+torch==1.4.0
+# Training curve visualization
+tensorboard==1.14.0
+# Progress bar for training
+tqdm
+# Serving web demo
+flask
+# Unit tests
+pytest
+# Lets pytest find our code
+pytest-pythonpath
+# Style linting
+flake8
+spacy==2.1.9
+# SQuAD utils
+allennlp==0.9.0
+tensorboardX==2.1
