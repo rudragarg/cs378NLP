@@ -1,7 +1,7 @@
 # This list of imports is likely incomplete --- add anything you need.
 # TODO: Your code here.
 import torch.nn as nn
-
+import allennlp
 
 class RNN(nn.Module):
     def __init__(self, embedding_matrix, hidden_size,
@@ -26,27 +26,40 @@ class RNN(nn.Module):
         self.init_arguments.pop("__class__")
         super(RNN, self).__init__()
 
+        #using CBOW as context
+        self.embedding_matrix = embedding_matrix
+        self.num_embedding_words = embedding_matrix.size(0)
+        self.embedding_dim = embedding_matrix.size(1)
+
+
         # Create Embedding object
         # TODO: Your code here.
+        self.embedding = nn.Embedding(self.num_embedding_words,
+                                      self.embedding_dim, padding_idx=0)
 
         # Load our embedding matrix weights into the Embedding object,
         # and make them untrainable (requires_grad=False)
         # TODO: Your code here.
+        self.embedding.weight = nn.Parameter(self.embedding_matrix,
+                                             requires_grad=False)
 
         # Make a GRU to encode the passage. Note that batch_first=True.
         # TODO: Your code here.
+        self.gruPassage = torch.nn.GRU(self.embedding_dim, hidden_size, batch_first=True)
 
         # Make a GRU to encode the question. Note that batch_first=True.
         # TODO: Your code here.
+        self.gruQuestion = torch.nn.GRU(self.embedding_dim, hidden_size, batch_first=True)
 
-        # Affine transform for predicting start index.
-        # TODO: Your code here.
+        #Affine transform for predicting start index.
+        self.start_output_projection = nn.Linear(3 * self.embedding_dim, 1)
 
         # Affine transform for predicting end index.
-        # TODO: Your code here.
+        self.end_output_projection = nn.Linear(3 * self.embedding_dim, 1)
 
         # Dropout layer
         # TODO: Your code here.
+        self.dropout = torch.nn.Dropout(dropout)
 
         # Stores the number of gradient updates performed.
         self.global_step = 0
@@ -100,40 +113,53 @@ class RNN(nn.Module):
         # padding (word index 0) and 1 in positions with actual words.
         # Make a mask for the passage. Shape: ?
         # TODO: Your code here.
-
+        passage_mask = (passage != 0).type(
+            torch.cuda.FloatTensor if passage.is_cuda else
+            torch.FloatTensor)
         # Make a mask for the question. Shape: ?
         # TODO: Your code here.
+        question_mask = (question != 0).type(
+            torch.cuda.FloatTensor if question.is_cuda else
+            torch.FloatTensor)
 
         # Make a LongTensor with the length (number non-padding words
         # in) each passage.
         # Shape: ?
         # TODO: Your code here.
+        passage_lengths = torch.LongTensor(passage_mask.sum(dim=1))
 
         # Make a LongTensor with the length (number non-padding words
         # in) each question.
         # Shape: ?
         # TODO: Your code here.
+        question_lengths = torch.LongTensor(question_mask.sum(dim=1))
+
 
         # Part 1: Embed the passages and the questions.
         # 1.1. Embed the passage.
         # TODO: Your code here.
         # Shape: ?
+        embedded_passage = self.embedding(passage)
 
         # 1.2. Embed the question.
         # TODO: Your code here.
         # Shape: ?
+        embedded_question = self.embedding(question)
 
         # Part 2. Encode the embedded passages with the RNN.
+        
         # 2.1. Sort embedded passages by decreasing order of passage_lengths.
         # Hint: allennlp.nn.util.sort_batch_by_length might be helpful.
         # TODO: Your code here.
+        sorted_embedded_passage = allennlp.nn.util.sort_batch_by_length(tensor=embedded_passage, sequence_lengths=passage_lengths)
 
         # 2.2. Pack the passages with torch.nn.utils.rnn.pack_padded_sequence.
         # Hint: Make sure you have the proper value for batch_first.
         # TODO: Your code here.
-
+        padded_sequence_passage = torch.nn.utils.rnn.pack_padded_sequence(sorted_embedded_passage, passage_lengths, batch_first=True)
         # 2.3. Encode the packed passages with the RNN.
         # TODO: Your code here.
+        self.gruPassage(padded_sequence_passage)
 
         # 2.4. Unpack (pad) the passages with
         # torch.nn.utils.rnn.pad_packed_sequence.
@@ -237,4 +263,3 @@ class RNN(nn.Module):
         #     "softmax_start_logits":,
         #     "softmax_end_logits":,
         # }
-        raise NotImplementedError
