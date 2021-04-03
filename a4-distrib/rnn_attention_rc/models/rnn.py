@@ -151,56 +151,67 @@ class RNN(nn.Module):
         # 2.1. Sort embedded passages by decreasing order of passage_lengths.
         # Hint: allennlp.nn.util.sort_batch_by_length might be helpful.
         # TODO: Your code here.
-        sorted_embedded_passage = allennlp.nn.util.sort_batch_by_length(tensor=embedded_passage, sequence_lengths=passage_lengths)
+        sorted_embedded_passage, sorted_sequence_lengths_passage, restoration_indices_passage, permutation_index_passage = allennlp.nn.util.sort_batch_by_length(tensor=embedded_passage, sequence_lengths=passage_lengths)
 
         # 2.2. Pack the passages with torch.nn.utils.rnn.pack_padded_sequence.
         # Hint: Make sure you have the proper value for batch_first.
         # TODO: Your code here.
-        padded_sequence_passage = torch.nn.utils.rnn.pack_padded_sequence(sorted_embedded_passage, passage_lengths, batch_first=True)
+        padded_sequence_passage = torch.nn.utils.rnn.pack_padded_sequence(sorted_embedded_passage, sorted_sequence_lengths_passage, batch_first=True)
+        
         # 2.3. Encode the packed passages with the RNN.
         # TODO: Your code here.
-        self.gruPassage(padded_sequence_passage)
+        encoded_passage = self.gruPassage(padded_sequence_passage)
 
         # 2.4. Unpack (pad) the passages with
         # torch.nn.utils.rnn.pad_packed_sequence.
         # Hint: Make sure you have the proper value for batch_first.
         # Shape: ?
         # TODO: Your code here.
+        unpacked_package = torch.nn.utils.rnn.pad_packed_sequence(encoded_passage, batch_first=False)
 
         # 2.5. Unsort the unpacked, encoded passage to restore the
         # initial ordering.
         # Hint: Look into torch.index_select or NumPy/PyTorch fancy indexing.
         # Shape: ?
         # TODO: Your code here.
+        unsorted_passage = torch.index_select(unpacked_package, 0, restoration_indices_passage)
 
         # Part 3. Encode the embedded questions with the RNN.
         # 3.1. Sort the embedded questions by decreasing order
         #      of question_lengths.
         # Hint: allennlp.nn.util.sort_batch_by_length might be helpful.
         # TODO: Your code here.
+        sorted_embedded_question, sorted_sequence_lengths_question, restoration_indices_question, permutation_index_question = allennlp.nn.util.sort_batch_by_length(tensor=embedded_question, sequence_lengths=question_lengths)
+      
 
         # 3.2. Pack the questions with pack_padded_sequence.
         # Hint: Make sure you have the proper value for batch_first.
         # TODO: Your code here.
+        padded_sequence_question = torch.nn.utils.rnn.pack_padded_sequence(sorted_embedded_question, sorted_sequence_lengths_question, batch_first=True)
 
         # 3.3. Encode the questions with the RNN.
         # TODO: Your code here.
+        encoded_question = self.gruPassage(padded_sequence_question)
 
         # 3.4. Unpack (pad) the questions with pad_packed_sequence.
         # Hint: Make sure you have the proper value for batch_first.
         # Shape: ?
         # TODO: Your code here.
+        unpacked_question = torch.nn.utils.rnn.pad_packed_sequence(encoded_question, batch_first=False)
 
         # 3.5. Unsort the unpacked, encoded question to restore the
         # initial ordering.
         # Hint: Look into torch.index_select or NumPy/PyTorch fancy indexing.
         # Shape: ?
         # TODO: Your code here.
+        unsorted_question = torch.index_select(unpacked_question, 0, restoration_indices_question)
 
         # 3.6. Take the average of the GRU hidden states.
         # Hint: Be careful how you treat padding.
         # Shape: ?
         # TODO: Your code here.
+        unsorted_question = (torch.sum(embedded_question, dim=1) /
+                     question_lengths.unsqueeze(1))
 
         # Part 4: Combine the passage and question representations by
         # concatenating the passage and question representations with
@@ -210,11 +221,14 @@ class RNN(nn.Module):
         # amenable to concatenation
         # Shape: ?
         # TODO: Your code here.
-
+        tiled_encoded_question = encoded_question.unsqueeze(dim=1).expand_as(
+            embedded_passage)
         # 4.2. Concatenate to make the combined representation.
         # Hint: Use torch.cat
         # Shape: ?
         # TODO: Your code here.
+        combined_x_question = torch.cat([embedded_passage, tiled_encoded_question,
+                                  embedded_passage * tiled_encoded_question], dim=-1)
 
         # Part 5: Compute logits for answer start index.
 
@@ -222,18 +236,22 @@ class RNN(nn.Module):
         # Shape after affine transformation: ?
         # Shape after editing shape: ?
         # TODO: Your code here.
+        start_logits = self.start_output_projection(combined_x_q).squeeze(-1)
+        
 
         # 5.2. Replace the masked values so they have a very low score (-1e7).
         # This tensor is your start_logits.
         # Hint: allennlp.nn.util.replace_masked_values might be helpful.
         # Shape: ?
         # TODO: Your code here.
+        start_logits = replace_masked_values(start_logits, passage_mask, -1e7)
 
         # 5.3. Apply a padding-aware log-softmax to normalize.
         # This tensor is your softmax_start_logits.
         # Hint: allennlp.nn.util.masked_log_softmax might be helpful.
         # Shape: ?
-        # TODO: Your code here.
+        # TODO: Your code here.'
+        softmax_start_logits = masked_log_softmax(start_logits, passage_mask)
 
         # Part 6: Compute logits for answer end index.
 
@@ -241,25 +259,29 @@ class RNN(nn.Module):
         # Shape after affine transformation: ?
         # Shape after editing shape: ?
         # TODO: Your code here.
-
+        end_logits = self.end_output_projection(combined_x_q).squeeze(-1)
+       
         # 6.2. Replace the masked values so they have a very low score (-1e7).
         # This tensor is your end_logits.
         # Hint: allennlp.nn.util.replace_masked_values might be helpful.
         # Shape: ?
         # TODO: Your code here.
-
+        end_logits = replace_masked_values(end_logits, passage_mask, -1e7)
+       
         # 6.3. Apply a padding-aware log-softmax to normalize.
         # This tensor is your softmax_end_logits.
         # Hint: allennlp.nn.util.masked_log_softmax might be helpful.
         # Shape: ?
         # TODO: Your code here.
+        softmax_end_logits = masked_log_softmax(end_logits, passage_mask)
 
         # Part 7: Output a dictionary with the start_logits, end_logits,
         # softmax_start_logits, softmax_end_logits.
         # TODO: Your code here. Remove the NotImplementedError below.
-        # return {
-        #     "start_logits":,
-        #     "end_logits":,
-        #     "softmax_start_logits":,
-        #     "softmax_end_logits":,
-        # }
+
+        return {
+            "start_logits": start_logits,
+            "end_logits": end_logits,
+            "softmax_start_logits": softmax_start_logits,
+            "softmax_end_logits": softmax_end_logits,
+        }
