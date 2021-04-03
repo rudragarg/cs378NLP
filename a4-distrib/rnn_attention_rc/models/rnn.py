@@ -2,6 +2,8 @@
 # TODO: Your code here.
 import torch.nn as nn
 import allennlp
+from allennlp.nn.util import replace_masked_values, masked_log_softmax
+import torch
 
 class RNN(nn.Module):
     def __init__(self, embedding_matrix, hidden_size,
@@ -52,10 +54,10 @@ class RNN(nn.Module):
         self.gruQuestion = torch.nn.GRU(self.embedding_dim, hidden_size, batch_first=True)
 
         #Affine transform for predicting start index.
-        self.start_output_projection = nn.Linear(3 * self.embedding_dim, 1)
+        self.start_output_projection = nn.Linear(3 * hidden_size, 1)
 
         # Affine transform for predicting end index.
-        self.end_output_projection = nn.Linear(3 * self.embedding_dim, 1)
+        self.end_output_projection = nn.Linear(3 * hidden_size, 1)
 
         # Dropout layer
         # TODO: Your code here.
@@ -126,13 +128,13 @@ class RNN(nn.Module):
         # in) each passage.
         # Shape: ?
         # TODO: Your code here.
-        passage_lengths = torch.LongTensor(passage_mask.sum(dim=1))
+        passage_lengths = (passage_mask.sum(dim=1)).type(torch.cuda.LongTensor)
 
         # Make a LongTensor with the length (number non-padding words
         # in) each question.
         # Shape: ?
         # TODO: Your code here.
-        question_lengths = torch.LongTensor(question_mask.sum(dim=1))
+        question_lengths = (question_mask.sum(dim=1)).type(torch.cuda.LongTensor)
 
 
         # Part 1: Embed the passages and the questions.
@@ -152,7 +154,7 @@ class RNN(nn.Module):
         # Hint: allennlp.nn.util.sort_batch_by_length might be helpful.
         # TODO: Your code here.
         sorted_embedded_passage, sorted_sequence_lengths_passage, restoration_indices_passage, permutation_index_passage = allennlp.nn.util.sort_batch_by_length(tensor=embedded_passage, sequence_lengths=passage_lengths)
-
+        sorted_sequence_lengths_passage = sorted_sequence_lengths_passage.type(torch.LongTensor)
         # 2.2. Pack the passages with torch.nn.utils.rnn.pack_padded_sequence.
         # Hint: Make sure you have the proper value for batch_first.
         # TODO: Your code here.
@@ -160,21 +162,23 @@ class RNN(nn.Module):
         
         # 2.3. Encode the packed passages with the RNN.
         # TODO: Your code here.
-        encoded_passage = self.gruPassage(padded_sequence_passage)
+        encoded_passage, hidden_states_passage = self.gruPassage(padded_sequence_passage)
 
         # 2.4. Unpack (pad) the passages with
         # torch.nn.utils.rnn.pad_packed_sequence.
         # Hint: Make sure you have the proper value for batch_first.
         # Shape: ?
         # TODO: Your code here.
-        unpacked_package = torch.nn.utils.rnn.pad_packed_sequence(encoded_passage, batch_first=False)
+        unpacked_passage, length_sequence_passage = torch.nn.utils.rnn.pad_packed_sequence(encoded_passage, batch_first=True)
 
         # 2.5. Unsort the unpacked, encoded passage to restore the
         # initial ordering.
         # Hint: Look into torch.index_select or NumPy/PyTorch fancy indexing.
         # Shape: ?
         # TODO: Your code here.
-        unsorted_passage = torch.index_select(unpacked_package, 0, restoration_indices_passage)
+        
+        unsorted_passage = torch.index_select(unpacked_passage, 0, restoration_indices_passage, out=None)
+        #unsorted_passage = unpacked_passage.index_select(0, restoration_indices_passage)
 
         # Part 3. Encode the embedded questions with the RNN.
         # 3.1. Sort the embedded questions by decreasing order
@@ -191,26 +195,27 @@ class RNN(nn.Module):
 
         # 3.3. Encode the questions with the RNN.
         # TODO: Your code here.
-        encoded_question = self.gruPassage(padded_sequence_question)
+        encoded_question, hidden_states_question = self.gruQuestion(padded_sequence_question)
 
         # 3.4. Unpack (pad) the questions with pad_packed_sequence.
         # Hint: Make sure you have the proper value for batch_first.
         # Shape: ?
         # TODO: Your code here.
-        unpacked_question = torch.nn.utils.rnn.pad_packed_sequence(encoded_question, batch_first=False)
+        unpacked_question, length_sequence_question = torch.nn.utils.rnn.pad_packed_sequence(encoded_question, batch_first=True)
 
         # 3.5. Unsort the unpacked, encoded question to restore the
         # initial ordering.
         # Hint: Look into torch.index_select or NumPy/PyTorch fancy indexing.
         # Shape: ?
         # TODO: Your code here.
-        unsorted_question = torch.index_select(unpacked_question, 0, restoration_indices_question)
+        unsorted_question = torch.index_select(unpacked_question, 0, restoration_indices_question, out=None)
+        #unsorted_question = unpacked_question.index_select(0, restoration_indices_question)
 
         # 3.6. Take the average of the GRU hidden states.
         # Hint: Be careful how you treat padding.
         # Shape: ?
         # TODO: Your code here.
-        unsorted_question = (torch.sum(embedded_question, dim=1) /
+        average_question = (torch.sum(unsorted_question, dim=1) /
                      question_lengths.unsqueeze(1))
 
         # Part 4: Combine the passage and question representations by
@@ -221,14 +226,13 @@ class RNN(nn.Module):
         # amenable to concatenation
         # Shape: ?
         # TODO: Your code here.
-        tiled_encoded_question = encoded_question.unsqueeze(dim=1).expand_as(
-            embedded_passage)
+        tiled_encoded_question = average_question.unsqueeze(dim=1).expand_as(unsorted_passage)
         # 4.2. Concatenate to make the combined representation.
         # Hint: Use torch.cat
         # Shape: ?
         # TODO: Your code here.
-        combined_x_question = torch.cat([embedded_passage, tiled_encoded_question,
-                                  embedded_passage * tiled_encoded_question], dim=-1)
+        combined_x_question = torch.cat([unsorted_passage, tiled_encoded_question,
+                                  unsorted_passage * tiled_encoded_question], dim=-1)
 
         # Part 5: Compute logits for answer start index.
 
@@ -236,7 +240,7 @@ class RNN(nn.Module):
         # Shape after affine transformation: ?
         # Shape after editing shape: ?
         # TODO: Your code here.
-        start_logits = self.start_output_projection(combined_x_q).squeeze(-1)
+        start_logits = self.start_output_projection(combined_x_question).squeeze(-1)
         
 
         # 5.2. Replace the masked values so they have a very low score (-1e7).
@@ -259,7 +263,7 @@ class RNN(nn.Module):
         # Shape after affine transformation: ?
         # Shape after editing shape: ?
         # TODO: Your code here.
-        end_logits = self.end_output_projection(combined_x_q).squeeze(-1)
+        end_logits = self.end_output_projection(combined_x_question).squeeze(-1)
        
         # 6.2. Replace the masked values so they have a very low score (-1e7).
         # This tensor is your end_logits.
