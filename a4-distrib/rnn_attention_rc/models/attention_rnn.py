@@ -26,30 +26,47 @@ class AttentionRNN(nn.Module):
         self.init_arguments.pop("__class__")
         super(AttentionRNN, self).__init__()
 
+        #using CBOW as context
+        self.embedding_matrix = embedding_matrix
+        self.num_embedding_words = embedding_matrix.size(0)
+        self.embedding_dim = embedding_matrix.size(1)
+
         # Create Embedding object
         # TODO: Your code here.
+        self.embedding = nn.Embedding(self.num_embedding_words,
+                                      self.embedding_dim, padding_idx=0)
 
         # Load our embedding matrix weights into the Embedding object,
         # and make them untrainable (requires_grad=False)
         # TODO: Your code here.
+        self.embedding.weight = nn.Parameter(self.embedding_matrix,
+                                             requires_grad=False)
 
         # Make a RNN to encode the passage. Note that batch_first=True.
         # TODO: Your code here.
-
+        self.rnnPassage = torch.nn.RNN(self.embedding_dim, hidden_size, batch_first=True)
+        
         # Make a RNN to encode the question. Note that batch_first=True.
         # TODO: Your code here.
+        self.rnnQuestion = torch.nn.RNN(self.embedding_dim, hidden_size, batch_first=True)
 
         # Affine transform for attention.
         # TODO: Your code here.
+        self.attention = nn.Linear(hidden_size * 3, 1)
 
         # Affine transform for predicting start index.
         # TODO: Your code here.
+        self.start_output_projection = nn.Linear(3 * hidden_size, 1)
+
 
         # Affine transform for predicting end index.
         # TODO: Your code here.
+        self.end_output_projection = nn.Linear(3 * hidden_size, 1)
 
         # Dropout layer
         # TODO: Your code here.
+        self.dropout = torch.nn.Dropout(dropout)
+
 
         # Stores the number of gradient updates performed.
         self.global_step = 0
@@ -103,76 +120,98 @@ class AttentionRNN(nn.Module):
         # padding (word index 0) and 1 in positions with actual words.
         # Make a mask for the passage. Shape: ?
         # TODO: Your code here.
-
+        passage_mask = (passage != 0).type(
+            torch.cuda.FloatTensor if passage.is_cuda else
+            torch.FloatTensor)
         # Make a mask for the question. Shape: ?
         # TODO: Your code here.
+        question_mask = (question != 0).type(
+            torch.cuda.FloatTensor if question.is_cuda else
+            torch.FloatTensor)
 
         # Make a LongTensor with the length (number non-padding words
         # in) each passage.
         # Shape: ?
         # TODO: Your code here.
+        passage_lengths = (passage_mask.sum(dim=1)).type(torch.cuda.LongTensor)
 
         # Make a LongTensor with the length (number non-padding words
         # in) each question.
         # Shape: ?
         # TODO: Your code here.
+        question_lengths = (question_mask.sum(dim=1)).type(torch.cuda.LongTensor)
 
         # Part 1: Embed the passages and the questions.
         # 1.1 Embed the passage.
         # TODO: Your code here.
         # Shape: ?
+        embedded_passage = self.embedding(passage)
 
         # 1.2. Embed the question.
         # TODO: Your code here.
         # Shape: ?
+        embedded_question = self.embedding(question)
 
         # Part 2. Encode the embedded passages with the RNN.
         # 2.1. Sort embedded passages by decreasing order of passage_lengths.
         # Hint: allennlp.nn.util.sort_batch_by_length might be helpful.
         # TODO: Your code here.
+        sorted_embedded_passage, sorted_sequence_lengths_passage, restoration_indices_passage, permutation_index_passage = allennlp.nn.util.sort_batch_by_length(tensor=embedded_passage, sequence_lengths=passage_lengths)
+        sorted_sequence_lengths_passage = sorted_sequence_lengths_passage.type(torch.LongTensor)
 
         # 2.2. Pack the passages with torch.nn.utils.rnn.pack_padded_sequence.
         # Hint: Make sure you have the proper value for batch_first.
         # TODO: Your code here.
+        padded_sequence_passage = torch.nn.utils.rnn.pack_padded_sequence(sorted_embedded_passage, sorted_sequence_lengths_passage, batch_first=True)
+
 
         # 2.3. Encode the packed passages with the RNN.
         # TODO: Your code here.
+        encoded_passage, hidden_states_passage = self.gruPassage(padded_sequence_passage)
+
 
         # 2.4. Unpack (pad) the passages with
         # torch.nn.utils.rnn.pad_packed_sequence.
         # Hint: Make sure you have the proper value for batch_first.
         # Shape: ?
         # TODO: Your code here.
+        unpacked_passage, length_sequence_passage = torch.nn.utils.rnn.pad_packed_sequence(encoded_passage, batch_first=True)
 
         # 2.5. Unsort the unpacked, encoded passage to restore the
         # initial ordering.
         # Hint: Look into torch.index_select or NumPy/PyTorch fancy indexing.
         # Shape: ?
         # TODO: Your code here.
+        unsorted_passage = torch.index_select(unpacked_passage, 0, restoration_indices_passage, out=None)
 
         # Part 3. Encode the embedded questions with the RNN.
         # 3.1. Sort the embedded questions by decreasing order
         #      of question_lengths.
         # Hint: allennlp.nn.util.sort_batch_by_length might be helpful.
         # TODO: Your code here.
+        sorted_embedded_question, sorted_sequence_lengths_question, restoration_indices_question, permutation_index_question = allennlp.nn.util.sort_batch_by_length(tensor=embedded_question, sequence_lengths=question_lengths)
 
         # 3.2. Pack the questions with pack_padded_sequence.
         # Hint: Make sure you have the proper value for batch_first.
         # TODO: Your code here.
+        padded_sequence_question = torch.nn.utils.rnn.pack_padded_sequence(sorted_embedded_question, sorted_sequence_lengths_question, batch_first=True)
 
         # 3.3. Encode the questions with the RNN.
         # TODO: Your code here.
+        encoded_question, hidden_states_question = self.gruQuestion(padded_sequence_question)
 
         # 3.4. Unpack (pad) the questions with pad_packed_sequence.
         # Hint: Make sure you have the proper value for batch_first.
         # Shape: ?
         # TODO: Your code here.
+        unpacked_question, length_sequence_question = torch.nn.utils.rnn.pad_packed_sequence(encoded_question, batch_first=True)
 
         # 3.5. Unsort the unpacked, encoded question to restore the
         # initial ordering.
         # Hint: Look into torch.index_select or NumPy/PyTorch fancy indexing.
         # Shape: ?
         # TODO: Your code here.
+        unsorted_question = torch.index_select(unpacked_question, 0, restoration_indices_question, out=None)
 
         # Part 4. Calculate attention weights and attend to question.
         # 4.1. Expand the encoded question to shape suitable for attention.
@@ -181,13 +220,20 @@ class AttentionRNN(nn.Module):
         # might be useful.
         # Shape: ?
         # TODO: Your code here.
-
+        attention_question_unsqueeze = torch.unsqueeze(unsorted_question, 1)
+        max_passage_size = embedded_passage.shape[1]
+        attention_question_expanded = attention_question_unsqueeze.expand(-1, max_passage_size, -1, -1)
+        
         # 4.2. Expand the encoded passage to shape suitable for attention.
         # Hint: Think carefully about what the shape of the attention
         # input vector should be. torch.unsqueeze and torch.expand
         # might be useful.
         # Shape: ?
         # TODO: Your code here.
+        attention_passage_unsqueeze = torch.unsqueeze(unsorted_passage, 1)
+        max_question_size = embedded_question.shape[1]
+        attention_passage_expanded = attention_passage_unsqueeze.expand(-1, -1, max_question_size, -1)
+        
 
         # 4.3. Build attention_input. This is the tensor passed through
         # the affine transform.
@@ -195,19 +241,26 @@ class AttentionRNN(nn.Module):
         # torch.cat might be useful.
         # Shape: ?
         # TODO: Your code here.
+        combined_x_question = torch.cat([attention_passage_expanded, attention_question_expanded,
+                                  attention_passage_expanded * attention_question_expanded], dim=-1)
+
 
         # 4.4. Apply affine transform to attention input to get
         # attention logits. You will need to slightly reshape it
         # into a tensor of the shape you expect.
         # Shape: ?
         # TODO: Your code here.
+        attention_output = self.attention(combined_x_question)
+        attention_output = attention_output.squeeze(1)
 
         # 4.5. Masked-softmax the attention logits over the last dimension
         # to normalize and make the attention logits a proper
         # probability distribution.
         # Hint: allennlp.nn.util.last_dim_softmax might be helpful.
+        # this does not exist, use masked_softmax
         # Shape: ?
         # TODO: Your code here.
+        attention_softmax = masked_softmax(attention_output, question_mask, dim=2)
 
         # 4.6. Use the attention weights to get a weighted average
         # of the RNN output from encoding the question for each
@@ -215,6 +268,7 @@ class AttentionRNN(nn.Module):
         # Hint: torch.bmm might be helpful.
         # Shape: ?
         # TODO: Your code here.
+        weighted_avg_question = torch.bmm(attention_softmax, embedded_question)
 
         # Part 5: Combine the passage and question representations by
         # concatenating the passage and question representations with

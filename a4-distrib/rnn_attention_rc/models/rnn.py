@@ -234,13 +234,16 @@ class RNN(nn.Module):
         combined_x_question = torch.cat([unsorted_passage, tiled_encoded_question,
                                   unsorted_passage * tiled_encoded_question], dim=-1)
 
+        #dropout
+        dropout_combined_x_question = self.dropout(combined_x_question)
+
         # Part 5: Compute logits for answer start index.
 
         # 5.1. Apply the affine transformation, and edit the shape.
         # Shape after affine transformation: ?
         # Shape after editing shape: ?
         # TODO: Your code here.
-        start_logits = self.start_output_projection(combined_x_question).squeeze(-1)
+        start_logits = self.start_output_projection(dropout_combined_x_question).squeeze(-1)
         
 
         # 5.2. Replace the masked values so they have a very low score (-1e7).
@@ -263,7 +266,7 @@ class RNN(nn.Module):
         # Shape after affine transformation: ?
         # Shape after editing shape: ?
         # TODO: Your code here.
-        end_logits = self.end_output_projection(combined_x_question).squeeze(-1)
+        end_logits = self.end_output_projection(dropout_combined_x_question).squeeze(-1)
        
         # 6.2. Replace the masked values so they have a very low score (-1e7).
         # This tensor is your end_logits.
