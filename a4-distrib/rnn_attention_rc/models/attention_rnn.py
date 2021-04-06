@@ -48,11 +48,11 @@ class AttentionRNN(nn.Module):
 
         # Make a RNN to encode the passage. Note that batch_first=True.
         # TODO: Your code here.
-        self.rnnPassage = torch.nn.RNN(self.embedding_dim, hidden_size, batch_first=True)
+        self.rnnPassage = torch.nn.GRU(self.embedding_dim, hidden_size, num_layers=2, batch_first=True)
         
         # Make a RNN to encode the question. Note that batch_first=True.
         # TODO: Your code here.
-        self.rnnQuestion = torch.nn.RNN(self.embedding_dim, hidden_size, batch_first=True)
+        self.rnnQuestion = torch.nn.GRU(self.embedding_dim, hidden_size,num_layers=2, batch_first=True)
 
         # Affine transform for attention.
         # TODO: Your code here.
