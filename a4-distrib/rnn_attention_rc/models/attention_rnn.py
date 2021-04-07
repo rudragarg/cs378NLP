@@ -138,7 +138,7 @@ class AttentionRNN(nn.Module):
         # Shape: ?
         # TODO: Your code here.
         passage_lengths = (passage_mask.sum(dim=1)).type(
-            torch.cuda.LongTensor if question.is_cuda else
+            torch.cuda.LongTensor if passage.is_cuda else
             torch.LongTensor)
         # Make a LongTensor with the length (number non-padding words
         # in) each question.
