@@ -47,17 +47,17 @@ class RNN(nn.Module):
 
         # Make a GRU to encode the passage. Note that batch_first=True.
         # TODO: Your code here.
-        self.gruPassage = torch.nn.GRU(self.embedding_dim, hidden_size, num_layers=2, batch_first=True)
+        self.gruPassage = torch.nn.GRU(self.embedding_dim, hidden_size, num_layers=2, batch_first=True, bidirectional=True)
 
         # Make a GRU to encode the question. Note that batch_first=True.
         # TODO: Your code here.
-        self.gruQuestion = torch.nn.GRU(self.embedding_dim, hidden_size, num_layers=2, batch_first=True)
+        self.gruQuestion = torch.nn.GRU(self.embedding_dim, hidden_size, num_layers=2, batch_first=True, bidirectional=True)
 
         #Affine transform for predicting start index.
-        self.start_output_projection = nn.Linear(3 * hidden_size, 1)
+        self.start_output_projection = nn.Linear(6 * hidden_size, 1)
 
         # Affine transform for predicting end index.
-        self.end_output_projection = nn.Linear(3 * hidden_size, 1)
+        self.end_output_projection = nn.Linear(6 * hidden_size, 1)
 
         # Dropout layer
         # TODO: Your code here.
