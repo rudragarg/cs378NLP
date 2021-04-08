@@ -181,7 +181,7 @@ class AttentionRNN(nn.Module):
 
         # Part 3. Encode the embedded questions with the RNN.
         # 3.1. Sort the embedded questions by decreasing order
-            of question_lengths.
+        # of question_lengths.
         # Hint: allennlp.nn.util.sort_batch_by_length might be helpful.
         
         sorted_embedded_question, sorted_sequence_lengths_question, restoration_indices_question, permutation_index_question = allennlp.nn.util.sort_batch_by_length(tensor=embedded_question, sequence_lengths=question_lengths)

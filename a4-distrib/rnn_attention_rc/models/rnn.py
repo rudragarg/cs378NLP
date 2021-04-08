@@ -175,7 +175,7 @@ class RNN(nn.Module):
 
         # Part 3. Encode the embedded questions with the RNN.
         # 3.1. Sort the embedded questions by decreasing order
-        of question_lengths.
+        # of question_lengths.
         # Hint: allennlp.nn.util.sort_batch_by_length might be helpful.
         sorted_embedded_question, sorted_sequence_lengths_question, restoration_indices_question, permutation_index_question = allennlp.nn.util.sort_batch_by_length(tensor=embedded_question, sequence_lengths=question_lengths)
       
@@ -239,7 +239,7 @@ class RNN(nn.Module):
         # 5.3. Apply a padding-aware log-softmax to normalize.
         # This tensor is your softmax_start_logits.
         # Hint: allennlp.nn.util.masked_log_softmax might be helpful.
-    '
+    
         softmax_start_logits = masked_log_softmax(start_logits, passage_mask)
 
         # Part 6: Compute logits for answer end index.
